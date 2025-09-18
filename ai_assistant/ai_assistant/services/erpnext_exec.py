@@ -10,6 +10,7 @@ import frappe
 from typing import Dict, Any, List, Optional, Tuple
 from frappe import _
 from frappe.utils import cint, flt
+from .erpnext_api import ERPNextAPIService
 
 
 class ERPNextExecutor:
@@ -31,9 +32,34 @@ class ERPNextExecutor:
         'TRUNCATE', 'REPLACE', 'MERGE', 'CALL', 'EXECUTE'
     }
     
-    # Allowed bench commands (very restrictive)
+    # Allowed bench commands (safe operations only)
     ALLOWED_BENCH_COMMANDS = {
-        'version', '--version', '--help', '-h', 'help'
+        # Information commands
+        'version', '--version', '--help', '-h', 'help',
+        'list-apps', 'get-config', 'site-info',
+        
+        # Document operations (safe read/write)
+        'get-doc', 'set-value', 'list-docs', 'get-value',
+        'new-doc', 'delete-doc',
+        
+        # Data operations (import/export)
+        'export-csv', 'export-json', 'import-csv', 'import-json',
+        
+        # ERPNext-specific operations (safe)
+        'show-config', 'doctor', 'ready-for-migration',
+        
+        # User operations (limited)
+        'list-users'
+    }
+    
+    # Admin-only commands that are NEVER allowed (even if safe mode is off)
+    BLOCKED_ADMIN_COMMANDS = {
+        'migrate', 'rollback-migration', 'clear-cache', 'clear-website-cache',
+        'backup', 'restore', 'install-app', 'uninstall-app', 'update', 'pull',
+        'setup', 'new-site', 'drop-site', 'reinstall', 'bench-update',
+        'restart', 'start', 'stop', 'reload-nginx', 'setup-nginx',
+        # CRITICAL: Block dangerous execution commands
+        'execute', 'console', 'mariadb', 'add-user', 'set-admin-password', 'disable-user'
     }
     
     # Shell metacharacters to detect and block
@@ -52,6 +78,7 @@ class ERPNextExecutor:
         """
         self.safe_mode = safe_mode
         self.timeout = timeout
+        self.api_service = ERPNextAPIService(use_rest_api=False)  # Use direct Frappe methods by default
     
     def execute_command(self, command: str) -> Dict[str, Any]:
         """
@@ -88,6 +115,8 @@ class ERPNextExecutor:
             # Determine command type and execute
             if self._is_sql_command(command):
                 return self._execute_sql_command(command, start_time)
+            elif self._is_api_command(command):
+                return self._execute_api_command(command, start_time)
             elif self._is_bench_command(command):
                 if self.safe_mode:
                     return self._error_result("Bench commands disabled in safe mode", start_time)
@@ -270,22 +299,226 @@ class ERPNextExecutor:
         
         # Check first argument
         first_arg = cmd_parts[0]
+        
+        # Block admin commands immediately
+        if first_arg in self.BLOCKED_ADMIN_COMMANDS:
+            return False
+        
+        # Check if command is in allowed list
         if first_arg in self.ALLOWED_BENCH_COMMANDS:
             return True
         
-        # Allow specific safe commands
+        # Allow specific patterns and complex commands
         safe_patterns = [
-            r'^--help$',
-            r'^-h$',
-            r'^version$',
-            r'^--version$'
+            r'^--help$', r'^-h$', r'^version$', r'^--version$',
+            r'^--site$',  # Allow site specification
         ]
         
         for pattern in safe_patterns:
             if re.match(pattern, first_arg):
                 return True
         
+        # Handle complex bench commands with site specification
+        if len(cmd_parts) >= 3 and cmd_parts[0] == '--site':
+            # Allow: bench --site [site_name] [command]
+            actual_command = cmd_parts[2]
+            if actual_command in self.ALLOWED_BENCH_COMMANDS and actual_command not in self.BLOCKED_ADMIN_COMMANDS:
+                return True
+        
         return False
+    
+    def _is_api_command(self, command: str) -> bool:
+        """Check if this is an API command (create, read, update, delete documents)."""
+        command_lower = command.lower().strip()
+        
+        # API command patterns
+        api_patterns = [
+            "create ", "new ", "insert ",  # Create operations
+            "get ", "read ", "fetch ", "find ",  # Read operations  
+            "update ", "modify ", "edit ",  # Update operations
+            "delete ", "remove ",  # Delete operations
+            "list ", "search "  # List/search operations
+        ]
+        
+        for pattern in api_patterns:
+            if command_lower.startswith(pattern):
+                return True
+        
+        return False
+    
+    def _execute_api_command(self, command: str, start_time: float) -> Dict[str, Any]:
+        """
+        Execute API command for document operations.
+        
+        Args:
+            command (str): API command to execute
+            start_time (float): Execution start time
+        
+        Returns:
+            Dict[str, Any]: Execution result
+        """
+        try:
+            command_lower = command.lower().strip()
+            
+            # Parse command and determine operation
+            if command_lower.startswith(("create ", "new ", "insert ")):
+                return self._handle_create_command(command, start_time)
+            elif command_lower.startswith(("get ", "read ", "fetch ", "find ")):
+                return self._handle_read_command(command, start_time)
+            elif command_lower.startswith(("update ", "modify ", "edit ")):
+                return self._handle_update_command(command, start_time)
+            elif command_lower.startswith(("delete ", "remove ")):
+                return self._handle_delete_command(command, start_time)
+            elif command_lower.startswith(("list ", "search ")):
+                return self._handle_list_command(command, start_time)
+            else:
+                return self._error_result("API command not recognized", start_time)
+                
+        except Exception as e:
+            frappe.log_error(f"API command error: {str(e)}", "ERPNext Executor")
+            return self._error_result(f"API execution error: {str(e)}", start_time)
+    
+    def _handle_create_command(self, command: str, start_time: float) -> Dict[str, Any]:
+        """Handle create document commands."""
+        # Parse: create Customer with customer_name="ABC Corp" and customer_type="Company"
+        try:
+            parts = command.split()
+            if len(parts) < 2:
+                return self._error_result("Invalid create command format", start_time)
+            
+            doctype = parts[1]
+            
+            # Simple parsing for key=value pairs
+            data = {}
+            if "with" in command:
+                with_part = command.split("with", 1)[1].strip()
+                # Parse key="value" pairs
+                import re
+                matches = re.findall(r'(\w+)=(?:"([^"]*)"|\'([^\']*)\'|(\S+))', with_part)
+                for match in matches:
+                    key = match[0]
+                    value = match[1] or match[2] or match[3]
+                    data[key] = value
+            
+            result = self.api_service.create_document(doctype, data)
+            execution_time = int((time.time() - start_time) * 1000)
+            result["executionTime"] = execution_time
+            
+            return result
+            
+        except Exception as e:
+            return self._error_result(f"Create command error: {str(e)}", start_time)
+    
+    def _handle_read_command(self, command: str, start_time: float) -> Dict[str, Any]:
+        """Handle read document commands."""
+        # Parse: get Customer "CUST-00001" or find Customer where customer_name="ABC Corp"
+        try:
+            parts = command.split()
+            if len(parts) < 2:
+                return self._error_result("Invalid read command format", start_time)
+            
+            doctype = parts[1]
+            
+            # Simple name-based lookup
+            if len(parts) >= 3 and not parts[2].startswith("where"):
+                name = parts[2].strip('"\'')
+                result = self.api_service.get_document(doctype, name)
+            else:
+                # List with basic filters
+                filters = {}
+                if "where" in command:
+                    # Simple parsing - this could be enhanced
+                    result = self.api_service.list_documents(doctype, filters, limit=10)
+                else:
+                    result = self.api_service.list_documents(doctype, limit=10)
+            
+            execution_time = int((time.time() - start_time) * 1000)
+            result["executionTime"] = execution_time
+            
+            return result
+            
+        except Exception as e:
+            return self._error_result(f"Read command error: {str(e)}", start_time)
+    
+    def _handle_update_command(self, command: str, start_time: float) -> Dict[str, Any]:
+        """Handle update document commands."""
+        # Parse: update Customer "CUST-00001" set customer_name="New Name"
+        try:
+            parts = command.split()
+            if len(parts) < 4:
+                return self._error_result("Invalid update command format", start_time)
+            
+            doctype = parts[1]
+            name = parts[2].strip('"\'')
+            
+            # Parse set clauses
+            data = {}
+            if "set" in command:
+                set_part = command.split("set", 1)[1].strip()
+                import re
+                matches = re.findall(r'(\w+)=(?:"([^"]*)"|\'([^\']*)\'|(\S+))', set_part)
+                for match in matches:
+                    key = match[0]
+                    value = match[1] or match[2] or match[3]
+                    data[key] = value
+            
+            result = self.api_service.update_document(doctype, name, data)
+            execution_time = int((time.time() - start_time) * 1000)
+            result["executionTime"] = execution_time
+            
+            return result
+            
+        except Exception as e:
+            return self._error_result(f"Update command error: {str(e)}", start_time)
+    
+    def _handle_delete_command(self, command: str, start_time: float) -> Dict[str, Any]:
+        """Handle delete document commands."""
+        # Parse: delete Customer "CUST-00001"
+        try:
+            parts = command.split()
+            if len(parts) < 3:
+                return self._error_result("Invalid delete command format", start_time)
+            
+            doctype = parts[1]
+            name = parts[2].strip('"\'')
+            
+            result = self.api_service.delete_document(doctype, name)
+            execution_time = int((time.time() - start_time) * 1000)
+            result["executionTime"] = execution_time
+            
+            return result
+            
+        except Exception as e:
+            return self._error_result(f"Delete command error: {str(e)}", start_time)
+    
+    def _handle_list_command(self, command: str, start_time: float) -> Dict[str, Any]:
+        """Handle list/search document commands."""
+        # Parse: list Customer or search Customer for "ABC"
+        try:
+            parts = command.split()
+            if len(parts) < 2:
+                return self._error_result("Invalid list command format", start_time)
+            
+            command_lower = command.lower()
+            doctype = parts[1]
+            
+            if command_lower.startswith("search") and "for" in command:
+                # Search command
+                search_term = command.split("for", 1)[1].strip().strip('"\'')
+                result = self.api_service.search_documents(doctype, search_term, limit=10)
+            else:
+                # List command
+                filters = {}
+                # Could add filter parsing here
+                result = self.api_service.list_documents(doctype, filters, limit=20)
+            
+            execution_time = int((time.time() - start_time) * 1000)
+            result["executionTime"] = execution_time
+            
+            return result
+            
+        except Exception as e:
+            return self._error_result(f"List command error: {str(e)}", start_time)
     
     def _add_limit_to_select(self, command: str) -> str:
         """

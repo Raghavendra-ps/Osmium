@@ -318,35 +318,63 @@ Guidelines:
         return base_prompt
     
     def _build_command_analysis_prompt(self, prompt: str, schema_context: str) -> str:
-        """Build prompt for command analysis."""
-        analysis_prompt = f"""Analyze the following user request and determine if it contains a command that should be executed in ERPNext.
+        """Build enhanced prompt for command analysis with comprehensive database context."""
+        analysis_prompt = f"""You are an ERPNext AI Assistant with complete access to database schema and capabilities. Analyze this user request and determine the best execution approach.
 
-User Request: "{prompt}"
+USER REQUEST: "{prompt}"
 
-{schema_context and f"Database Schema: {schema_context[:1000]}" or ""}
+AVAILABLE CAPABILITIES:
+1. SQL QUERIES: Direct database queries (SELECT, INSERT, UPDATE, DELETE)
+2. DOCUMENT OPERATIONS: 
+   - create Customer with customer_name="ABC Corp"
+   - get Customer "CUST-00001"
+   - update Customer "CUST-00001" set customer_name="New Name"
+   - delete Customer "CUST-00001"
+   - list Customers
+   - search Customer for "ABC"
+3. BENCH COMMANDS: get-doc, list-apps, version, execute, etc.
+4. DATA ANALYSIS: Business reports, insights, trends
 
-Return a JSON object with this exact structure:
+COMPLETE DATABASE CONTEXT:
+{schema_context}
+
+Use the database context to:
+- Identify exact DocType names and field names
+- Choose appropriate table names (tab[DocType])
+- Validate operations are possible with available data
+- Generate accurate commands using real field names
+
+Return a JSON object:
 {{
-    "command": "extracted command or empty string",
-    "description": "brief description of what the command does",
+    "command": "specific executable command",
+    "description": "what this command accomplishes",
     "isDestructive": false,
     "requiresConfirmation": false,
-    "category": "query|report|analysis|other"
+    "category": "sql|api|bench|analysis|other",
+    "doctype": "relevant ERPNext DocType if applicable",
+    "confidence": 0.95,
+    "alternative_commands": ["other possible commands"],
+    "reasoning": "why this approach was chosen based on available data"
 }}
 
 Categories:
-- query: Database SELECT queries
-- report: Generate reports or summaries
-- analysis: Data analysis or calculations
-- other: General questions or non-command requests
+- sql: Direct database queries (SELECT, INSERT, UPDATE, DELETE)
+- api: Document operations (create, read, update, delete, list, search)
+- bench: ERPNext bench commands
+- analysis: Data analysis and reporting
+- other: General questions or information requests
 
-Mark isDestructive as true ONLY for commands that modify data (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER).
-Mark requiresConfirmation as true for any potentially risky operations.
+IMPORTANT:
+- Use actual table/field names from the schema context
+- For Customer operations, use "tabCustomer" table
+- For Sales Invoice, use "tabSales Invoice" table
+- Always include LIMIT clauses for SELECT queries
+- Mark isDestructive=true for INSERT, UPDATE, DELETE operations
+- Use requiresConfirmation=true for risky operations
 
-Example responses:
-For "Show me all customers": {{"command": "SELECT * FROM `tabCustomer` LIMIT 100", "description": "List all customers", "isDestructive": false, "requiresConfirmation": false, "category": "query"}}
-
-For "What is ERPNext?": {{"command": "", "description": "General question about ERPNext", "isDestructive": false, "requiresConfirmation": false, "category": "other"}}
+Example:
+Request: "Show me recent sales invoices"
+Response: {{"command": "SELECT name, customer, grand_total, posting_date FROM `tabSales Invoice` ORDER BY posting_date DESC LIMIT 20", "description": "Retrieve 20 most recent sales invoices", "isDestructive": false, "requiresConfirmation": false, "category": "sql", "doctype": "Sales Invoice", "confidence": 0.95, "alternative_commands": ["list Sales Invoice"], "reasoning": "Used SQL query for direct access to recent sales data with proper ordering"}}
 
 Return only the JSON object:"""
         

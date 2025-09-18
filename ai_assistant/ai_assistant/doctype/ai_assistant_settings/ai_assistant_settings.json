@@ -20,7 +20,11 @@
   "safety_settings_section",
   "safe_mode",
   "confirm_destructive",
-  "log_commands"
+  "log_commands",
+  "database_context_section",
+  "cached_schema",
+  "schema_last_scan",
+  "auto_scan_database"
  ],
  "fields": [
   {
@@ -119,6 +123,32 @@
    "fieldtype": "Check",
    "label": "Log Commands",
    "description": "Log all executed commands for audit trail"
+  },
+  {
+   "fieldname": "database_context_section",
+   "fieldtype": "Section Break",
+   "label": "Database Context"
+  },
+  {
+   "fieldname": "cached_schema",
+   "fieldtype": "Long Text",
+   "label": "Cached Database Schema",
+   "read_only": 1,
+   "description": "Automatically cached database schema for AI context"
+  },
+  {
+   "fieldname": "schema_last_scan",
+   "fieldtype": "Datetime",
+   "label": "Schema Last Scanned",
+   "read_only": 1,
+   "description": "Timestamp of last database schema scan"
+  },
+  {
+   "default": 1,
+   "fieldname": "auto_scan_database",
+   "fieldtype": "Check",
+   "label": "Auto-scan Database on Session Start",
+   "description": "Automatically scan and load database context when starting new chat sessions"
   }
  ],
  "issingle": 1,

@@ -38,6 +38,21 @@ def send_message(session_id, message, role="user"):
             if session_user != frappe.session.user and not frappe.has_permission("AI Chat Session", "read"):
                 frappe.throw(_("Not permitted to access this chat session"), frappe.PermissionError)
         else:
+            # Auto-scan database if enabled for new session
+            try:
+                settings_doc = frappe.get_single("AI Assistant Settings")
+                if settings_doc.auto_scan_database:
+                    # Trigger database scan for new session context
+                    schema_data = SchemaService.scan_database(include_custom=True, max_tables=500)
+                    SchemaService.save_schema_to_settings(schema_data)
+                    
+                    frappe.logger("ai_assistant").info(f"Database scanned for new session. "
+                                                     f"Found {schema_data['summary']['total_doctypes']} DocTypes "
+                                                     f"and {schema_data['summary']['total_tables']} tables.")
+            except Exception as scan_error:
+                frappe.log_error(f"Database scan error during session creation: {str(scan_error)}", "AI Assistant")
+                # Continue with session creation even if scan fails
+            
             # Create new session
             session_doc = frappe.get_doc({
                 "doctype": "AI Chat Session",
