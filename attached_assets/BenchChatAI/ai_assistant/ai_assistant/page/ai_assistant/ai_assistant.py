@@ -1,0 +1,220 @@
+# Copyright (c) 2025, ERPNext and contributors
+# For license information, please see license.txt
+
+import frappe
+from frappe import _
+from frappe.utils import now_datetime
+
+
+class AIAssistantPage:
+    """
+    Server-side page controller for AI Assistant Desk page.
+    
+    Handles page configuration, permissions, and initialization.
+    """
+    
+    def __init__(self):
+        self.page_name = "ai_assistant"
+        self.page_title = _("AI Assistant")
+        self.icon = "fa fa-robot"
+        
+    def get_context(self):
+        """
+        Get page context and configuration.
+        
+        Returns:
+            dict: Page context with configuration and initial data
+        """
+        # Check permissions
+        self.check_permission()
+        
+        context = frappe._dict()
+        context.page_title = self.page_title
+        context.icon = self.icon
+        context.user = frappe.session.user
+        context.user_image = frappe.db.get_value("User", frappe.session.user, "user_image")
+        context.full_name = frappe.utils.get_fullname(frappe.session.user)
+        
+        # Get current settings
+        try:
+            settings = frappe.get_single("AI Assistant Settings")
+            context.settings = {
+                "ollama_url": settings.ollama_url or "http://localhost:11434",
+                "model": settings.model or "llama2",
+                "safe_mode": settings.safe_mode,
+                "confirm_destructive": settings.confirm_destructive,
+                "log_commands": settings.log_commands
+            }
+        except Exception:
+            # Provide defaults if settings not found
+            context.settings = {
+                "ollama_url": "http://localhost:11434",
+                "model": "llama2", 
+                "safe_mode": 1,
+                "confirm_destructive": 1,
+                "log_commands": 0
+            }
+        
+        # Get recent chat sessions for the user
+        try:
+            context.recent_sessions = frappe.get_all("AI Chat Session",
+                filters={"user": frappe.session.user, "status": "Active"},
+                fields=["name", "title", "session_start", "message_count"],
+                order_by="session_start desc",
+                limit=10
+            )
+        except Exception:
+            context.recent_sessions = []
+        
+        # Check user permissions
+        context.can_manage_settings = frappe.has_permission("AI Assistant Settings", "write")
+        context.can_create_sessions = frappe.has_permission("AI Chat Session", "create")
+        context.can_send_messages = frappe.has_permission("AI Chat Message", "create")
+        
+        return context
+    
+    def check_permission(self):
+        """
+        Check if user has permission to access the AI Assistant page.
+        
+        Raises:
+            frappe.PermissionError: If user doesn't have required permissions
+        """
+        if frappe.session.user == "Guest":
+            frappe.throw(_("Please log in to access AI Assistant"), frappe.AuthenticationError)
+        
+        # Check if user can at least read AI Chat Sessions or Messages
+        if not (frappe.has_permission("AI Chat Session", "read") or 
+                frappe.has_permission("AI Chat Message", "read")):
+            frappe.throw(_("You don't have permission to access AI Assistant"), 
+                        frappe.PermissionError)
+    
+    @staticmethod
+    def get_page_info():
+        """
+        Get static page information for registration.
+        
+        Returns:
+            dict: Page registration info
+        """
+        return {
+            "page_name": "ai_assistant",
+            "page_title": _("AI Assistant"),
+            "icon": "fa fa-robot",
+            "single_page": True,
+            "is_query_report": False
+        }
+
+
+def get_context(context=None):
+    """
+    ERPNext page context handler.
+    
+    Args:
+        context (dict, optional): Existing context
+        
+    Returns:
+        dict: Complete page context
+    """
+    page = AIAssistantPage()
+    return page.get_context()
+
+
+@frappe.whitelist()
+def get_page_data():
+    """
+    Get page data for JavaScript initialization.
+    
+    Returns:
+        dict: Page data including user info and permissions
+    """
+    try:
+        page = AIAssistantPage()
+        page.check_permission()
+        
+        # Get settings
+        try:
+            settings = frappe.get_single("AI Assistant Settings")
+            settings_data = {
+                "ollama_url": settings.ollama_url or "http://localhost:11434",
+                "model": settings.model or "llama2",
+                "safe_mode": settings.safe_mode,
+                "confirm_destructive": settings.confirm_destructive,
+                "log_commands": settings.log_commands
+            }
+        except Exception:
+            settings_data = {
+                "ollama_url": "http://localhost:11434",
+                "model": "llama2",
+                "safe_mode": 1,
+                "confirm_destructive": 1,
+                "log_commands": 0
+            }
+        
+        return {
+            "success": True,
+            "user": {
+                "name": frappe.session.user,
+                "full_name": frappe.utils.get_fullname(frappe.session.user),
+                "image": frappe.db.get_value("User", frappe.session.user, "user_image")
+            },
+            "settings": settings_data,
+            "permissions": {
+                "can_manage_settings": frappe.has_permission("AI Assistant Settings", "write"),
+                "can_create_sessions": frappe.has_permission("AI Chat Session", "create"),
+                "can_send_messages": frappe.has_permission("AI Chat Message", "create"),
+                "can_execute_commands": frappe.has_permission("AI Chat Message", "write")
+            },
+            "server_time": now_datetime()
+        }
+        
+    except frappe.AuthenticationError:
+        frappe.throw(_("Authentication required"))
+    except frappe.PermissionError:
+        frappe.throw(_("Access denied"))
+    except Exception as e:
+        frappe.log_error(f"Get Page Data Error: {str(e)}", "AI Assistant Page")
+        frappe.throw(_("Failed to load page data"))
+
+
+@frappe.whitelist()
+def initialize_session():
+    """
+    Initialize a new chat session for the current user.
+    
+    Returns:
+        dict: New session information
+    """
+    try:
+        page = AIAssistantPage()
+        page.check_permission()
+        
+        if not frappe.has_permission("AI Chat Session", "create"):
+            frappe.throw(_("Not permitted to create chat sessions"), frappe.PermissionError)
+        
+        # Create new session
+        session_doc = frappe.get_doc({
+            "doctype": "AI Chat Session",
+            "title": f"Chat Session - {frappe.format(now_datetime(), 'datetime')}",
+            "user": frappe.session.user,
+            "session_start": now_datetime(),
+            "status": "Active",
+            "message_count": 0
+        })
+        session_doc.insert()
+        
+        return {
+            "success": True,
+            "session": {
+                "id": session_doc.name,
+                "title": session_doc.title,
+                "status": session_doc.status,
+                "session_start": session_doc.session_start
+            }
+        }
+        
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        frappe.log_error(f"Initialize Session Error: {str(e)}", "AI Assistant Page")
+        frappe.throw(_("Failed to create new session"))
