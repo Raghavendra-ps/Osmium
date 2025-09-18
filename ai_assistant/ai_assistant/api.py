@@ -199,11 +199,17 @@ def confirm_execute(message_id, command):
         # Get settings
         settings = get_settings()
         
-        # Check if safe mode is enabled and user confirmed
-        if settings.get("safe_mode") and settings.get("confirm_destructive"):
-            # Execute command
+        # Check if confirmation is enabled (either for destructive operations or SQL operations)
+        confirm_destructive = settings.get("safe_mode") and settings.get("confirm_destructive")
+        confirm_sql = settings.get("confirm_sql_operations", False)
+        
+        # Always execute when user has explicitly confirmed (this is the confirmation endpoint)
+        if True:  # User has already confirmed by calling this endpoint
+            # Execute command (bypass confirmation since user has already confirmed)
             executor = ERPNextExecutor(safe_mode=settings.get("safe_mode", True))
-            result = executor.execute_command(command)
+            
+            # Force execution since user has explicitly confirmed the command
+            result = executor.execute_command(command, force_execute=True)
             
             # Update message with execution results
             message.command_executed = command

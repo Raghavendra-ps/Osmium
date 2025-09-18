@@ -25,18 +25,44 @@ class ERPNextAPIService:
         Args:
             use_rest_api (bool): Use REST API instead of direct Frappe methods
             base_url (str): Base URL for REST API calls
-            api_key (str): API key for authentication
-            api_secret (str): API secret for authentication
+            api_key (str): API key for authentication (if None, loads from settings)
+            api_secret (str): API secret for authentication (if None, loads from settings)
         """
         self.use_rest_api = use_rest_api
         self.base_url = base_url or get_url()
-        self.api_key = api_key
-        self.api_secret = api_secret
         
-        # Session for REST API calls
+        # Load API credentials from settings if not provided
+        if api_key is None or api_secret is None:
+            try:
+                settings = frappe.get_single("AI Assistant Settings")
+                self.api_key = api_key or settings.get("api_key")
+                self.api_secret = api_secret or settings.get("api_secret")
+                
+                # Get site name from settings for multi-site operations
+                self.site_name = settings.get("site_name", "frontend1")
+            except Exception:
+                # Fallback if settings not available
+                self.api_key = api_key
+                self.api_secret = api_secret
+                self.site_name = "frontend1"
+        else:
+            self.api_key = api_key
+            self.api_secret = api_secret
+            self.site_name = "frontend1"
+        
+        # Session for REST API calls with ERPNext authentication
         self.session = requests.Session()
-        if api_key and api_secret:
-            self.session.auth = (api_key, api_secret)
+        if self.api_key and self.api_secret:
+            # ERPNext expects Authorization: token <api_key>:<api_secret>
+            auth_token = f"{self.api_key}:{self.api_secret}"
+            self.session.headers.update({
+                'Authorization': f'token {auth_token}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            })
+            # Add site header for multi-site operations if needed
+            if self.site_name:
+                self.session.headers['X-Frappe-Site-Name'] = self.site_name
     
     def create_document(self, doctype: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """

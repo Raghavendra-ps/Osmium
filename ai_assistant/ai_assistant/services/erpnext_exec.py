@@ -21,16 +21,8 @@ class ERPNextExecutor:
     with comprehensive security checks and safe mode enforcement.
     """
     
-    # SQL commands that are allowed
-    ALLOWED_SQL_COMMANDS = {
-        'SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN'
-    }
-    
-    # Destructive SQL commands that require confirmation
-    DESTRUCTIVE_SQL_COMMANDS = {
-        'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
-        'TRUNCATE', 'REPLACE', 'MERGE', 'CALL', 'EXECUTE'
-    }
+    # All SQL commands are now allowed (unrestricted access)
+    # Confirmation is handled separately via settings.confirm_sql_operations
     
     # Allowed bench commands (safe operations only)
     ALLOWED_BENCH_COMMANDS = {
@@ -79,8 +71,18 @@ class ERPNextExecutor:
         self.safe_mode = safe_mode
         self.timeout = timeout
         self.api_service = ERPNextAPIService(use_rest_api=False)  # Use direct Frappe methods by default
+        
+        # Load site name from settings for site-specific operations
+        try:
+            if frappe:
+                settings = frappe.get_single("AI Assistant Settings")
+                self.site_name = settings.get("site_name", "frontend1") if settings else "frontend1"
+            else:
+                self.site_name = "frontend1"
+        except Exception:
+            self.site_name = "frontend1"
     
-    def execute_command(self, command: str) -> Dict[str, Any]:
+    def execute_command(self, command: str, force_execute: bool = False) -> Dict[str, Any]:
         """
         Execute a command with security checks.
         
@@ -107,14 +109,15 @@ class ERPNextExecutor:
             if not command:
                 return self._error_result("Empty command", start_time)
             
-            # Security checks
-            security_check = self._perform_security_checks(command)
-            if not security_check["safe"]:
-                return self._error_result(security_check["reason"], start_time)
+            # Security checks (skip for SQL commands - user requested unrestricted SQL access)
+            if not self._is_sql_command(command):
+                security_check = self._perform_security_checks(command)
+                if not security_check["safe"]:
+                    return self._error_result(security_check["reason"], start_time)
             
             # Determine command type and execute
             if self._is_sql_command(command):
-                return self._execute_sql_command(command, start_time)
+                return self._execute_sql_command(command, start_time, force_execute)
             elif self._is_api_command(command):
                 return self._execute_api_command(command, start_time)
             elif self._is_bench_command(command):
@@ -175,13 +178,19 @@ class ERPNextExecutor:
     def _is_sql_command(self, command: str) -> bool:
         """Check if command is a SQL command."""
         first_word = command.strip().split()[0].upper()
-        return first_word in self.ALLOWED_SQL_COMMANDS or first_word in self.DESTRUCTIVE_SQL_COMMANDS
+        # Common SQL command keywords
+        sql_keywords = {
+            'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
+            'TRUNCATE', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN', 'REPLACE', 
+            'MERGE', 'CALL', 'EXECUTE', 'WITH', 'UNION', 'JOIN'
+        }
+        return first_word in sql_keywords
     
     def _is_bench_command(self, command: str) -> bool:
         """Check if command is a bench command."""
         return command.strip().startswith('bench ') or command.strip() in self.ALLOWED_BENCH_COMMANDS
     
-    def _execute_sql_command(self, command: str, start_time: float) -> Dict[str, Any]:
+    def _execute_sql_command(self, command: str, start_time: float, force_execute: bool = False) -> Dict[str, Any]:
         """
         Execute SQL command using Frappe's database interface.
         
@@ -195,30 +204,51 @@ class ERPNextExecutor:
         try:
             first_word = command.strip().split()[0].upper()
             
-            # Check if destructive command
-            if first_word in self.DESTRUCTIVE_SQL_COMMANDS:
-                if self.safe_mode:
-                    return self._error_result(
-                        f"Destructive SQL command '{first_word}' not allowed in safe mode", 
-                        start_time
-                    )
-                else:
-                    return self._error_result(
-                        f"Destructive SQL command '{first_word}' requires manual confirmation", 
-                        start_time
-                    )
+            # Check if SQL confirmation is required (user requested ALL SQL operations require confirmation)
+            if not force_execute and frappe:
+                try:
+                    settings = frappe.get_single("AI Assistant Settings")
+                    if settings and settings.confirm_sql_operations:
+                        return {
+                            "success": False,
+                            "output": "",
+                            "error": "SQL command requires user confirmation",
+                            "requires_confirmation": True,
+                            "command": command,
+                            "command_type": "sql",
+                            "description": f"Execute SQL: {command}",
+                            "executionTime": int((time.time() - start_time) * 1000)
+                        }
+                except Exception:
+                    # If we can't get settings, proceed with execution
+                    pass
             
-            # Process safe SQL commands
-            if first_word == 'SELECT':
-                command = self._add_limit_to_select(command)
+            # All SQL commands are now allowed with unrestricted access
+            # UNRESTRICTED SQL ACCESS - no modifications to user commands
+            # (User requested completely unrestricted access with confirmation)
             
-            # Execute using frappe.db.sql
-            if first_word in ['SHOW', 'DESCRIBE', 'DESC']:
-                # These commands return simple results
+            # Execute using frappe.db.sql with unrestricted access
+            if first_word in ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'TRUNCATE']:
+                # Data modification commands - commit changes and return affected rows
+                frappe.db.begin()
+                try:
+                    result = frappe.db.sql(command)
+                    frappe.db.commit()
+                    
+                    # For modification commands, show affected rows count
+                    affected_rows = frappe.db.sql("SELECT ROW_COUNT() as affected_rows", as_dict=True)
+                    output = f"Command executed successfully. Affected rows: {affected_rows[0]['affected_rows'] if affected_rows else 'Unknown'}"
+                except Exception as e:
+                    frappe.db.rollback()
+                    raise e
+                    
+            elif first_word in ['SHOW', 'DESCRIBE', 'DESC']:
+                # Information commands return simple results
                 result = frappe.db.sql(command, as_dict=False)
                 output = self._format_sql_result(result)
+                
             else:
-                # SELECT and EXPLAIN return structured data
+                # SELECT, EXPLAIN, and other query commands return structured data
                 result = frappe.db.sql(command, as_dict=True)
                 output = self._format_sql_result(result)
             
@@ -248,14 +278,22 @@ class ERPNextExecutor:
             Dict[str, Any]: Execution result
         """
         try:
-            # Parse command
+            # Parse command and add site context
             if command.startswith('bench '):
                 cmd_parts = shlex.split(command)
             else:
                 cmd_parts = ['bench'] + shlex.split(command)
             
-            # Validate command parts
-            if not self._is_allowed_bench_command(cmd_parts[1:]):
+            # Insert site-specific context for ERPNext operations
+            # bench command becomes: bench --site sitename command
+            if len(cmd_parts) > 1 and cmd_parts[1] != '--site':
+                # Insert --site sitename after 'bench'
+                cmd_parts.insert(1, '--site')
+                cmd_parts.insert(2, self.site_name)
+            
+            # Validate command parts (skip site-related args)
+            command_args = cmd_parts[3:] if '--site' in cmd_parts else cmd_parts[1:]
+            if not self._is_allowed_bench_command(command_args):
                 return self._error_result("Bench command not allowed", start_time)
             
             # Execute with timeout
@@ -614,32 +652,22 @@ class ERPNextExecutor:
             # Check command type
             first_word = query.split()[0].upper()
             
-            if first_word in self.DESTRUCTIVE_SQL_COMMANDS:
-                return {
-                    "valid": False,
-                    "reason": f"Destructive command '{first_word}' not allowed",
-                    "isDestructive": True
-                }
+            # All SQL commands are now allowed (unrestricted access)
+            # Determine if command is potentially destructive for logging/confirmation
+            destructive_commands = {
+                'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
+                'TRUNCATE', 'REPLACE', 'MERGE', 'CALL', 'EXECUTE'
+            }
+            is_destructive = first_word in destructive_commands
             
-            if first_word not in self.ALLOWED_SQL_COMMANDS:
-                return {
-                    "valid": False,
-                    "reason": f"Command '{first_word}' not allowed"
-                }
-            
-            # Security checks
-            security_check = self._perform_security_checks(query)
-            if not security_check["safe"]:
-                return {
-                    "valid": False,
-                    "reason": security_check["reason"]
-                }
+            # UNRESTRICTED SQL ACCESS - skip security checks for confirmed SQL operations
+            # (User specifically requested completely unrestricted SQL access)
             
             return {
                 "valid": True,
-                "reason": "Query is valid",
+                "reason": "Query is valid (unrestricted access enabled)",
                 "commandType": first_word.lower(),
-                "isDestructive": False
+                "isDestructive": is_destructive
             }
             
         except Exception as e:

@@ -17,9 +17,15 @@
   "openai_api_key",
   "openai_model",
   "column_break_3",
+  "erpnext_integration_section",
+  "site_name",
+  "api_key",
+  "api_secret",
+  "column_break_4",
   "safety_settings_section",
   "safe_mode",
   "confirm_destructive",
+  "confirm_sql_operations",
   "log_commands",
   "database_context_section",
   "cached_schema",
@@ -99,6 +105,35 @@
    "depends_on": "eval:doc.provider=='openai'"
   },
   {
+   "fieldname": "erpnext_integration_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Integration"
+  },
+  {
+   "default": "frontend1",
+   "fieldname": "site_name",
+   "fieldtype": "Data",
+   "label": "Site Name",
+   "reqd": 1,
+   "description": "ERPNext site name for operations (e.g., frontend1)"
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Data",
+   "label": "API Key",
+   "description": "ERPNext API Key for REST operations"
+  },
+  {
+   "fieldname": "api_secret",
+   "fieldtype": "Password",
+   "label": "API Secret",
+   "description": "ERPNext API Secret for REST operations"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "safety_settings_section",
    "fieldtype": "Section Break",
    "label": "Safety & Execution Settings"
@@ -115,7 +150,14 @@
    "fieldname": "confirm_destructive",
    "fieldtype": "Check",
    "label": "Confirm Destructive Operations",
-   "description": "Require manual confirmation for data-modifying operations"
+   "description": "Require manual confirmation for non-SQL data-modifying operations"
+  },
+  {
+   "default": 1,
+   "fieldname": "confirm_sql_operations",
+   "fieldtype": "Check",
+   "label": "Confirm ALL SQL Operations",
+   "description": "Require manual confirmation for every SQL command (recommended for unrestricted access)"
   },
   {
    "default": 0,
