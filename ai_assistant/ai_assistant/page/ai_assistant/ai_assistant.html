@@ -175,15 +175,44 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="ollama-url">{{ _("Ollama URL") }}</label>
-                    <input type="text" class="form-control" id="ollama-url" placeholder="http://localhost:11434">
-                    <p class="help-text">{{ _("URL of the Ollama server") }}</p>
+                    <label for="provider">{{ _("AI Provider") }}</label>
+                    <select class="form-control" id="provider">
+                        <option value="ollama">{{ _("Ollama (Local)") }}</option>
+                        <option value="openai">{{ _("OpenAI") }}</option>
+                    </select>
+                    <p class="help-text">{{ _("Select your preferred AI provider") }}</p>
                 </div>
-                <div class="form-group">
-                    <label for="ai-model">{{ _("AI Model") }}</label>
-                    <input type="text" class="form-control" id="ai-model" placeholder="llama2">
-                    <p class="help-text">{{ _("Name of the AI model to use") }}</p>
+                
+                <div class="ollama-section">
+                    <h5>{{ _("Ollama Configuration") }}</h5>
+                    <div class="form-group">
+                        <label for="ollama-url">{{ _("Ollama Server URL") }}</label>
+                        <input type="text" class="form-control" id="ollama-url" placeholder="http://localhost:11434">
+                        <p class="help-text">{{ _("URL of your Ollama server") }}</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="ollama-model">{{ _("Ollama Model") }}</label>
+                        <input type="text" class="form-control" id="ollama-model" placeholder="llama2">
+                        <p class="help-text">{{ _("Ollama model name (e.g., llama2, codellama)") }}</p>
+                    </div>
                 </div>
+                
+                <div class="openai-section" style="display: none;">
+                    <h5>{{ _("OpenAI Configuration") }}</h5>
+                    <div class="form-group">
+                        <label for="openai-api-key">{{ _("OpenAI API Key") }}</label>
+                        <input type="password" class="form-control" id="openai-api-key" placeholder="sk-...">
+                        <p class="help-text">{{ _("Your OpenAI API key (starts with sk-)") }}</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="openai-model">{{ _("OpenAI Model") }}</label>
+                        <input type="text" class="form-control" id="openai-model" placeholder="gpt-5">
+                        <p class="help-text">{{ _("OpenAI model name (gpt-5, gpt-4o, gpt-3.5-turbo)") }}</p>
+                    </div>
+                </div>
+                
+                <hr>
+                <h5>{{ _("Safety & Execution Settings") }}</h5>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="safe-mode"> {{ _("Safe Mode") }}

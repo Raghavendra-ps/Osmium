@@ -132,20 +132,17 @@ def get_page_data():
         page = AIAssistantPage()
         page.check_permission()
         
-        # Get settings
+        # Get settings using the standardized get_settings function
+        from ai_assistant.ai_assistant.api import get_settings
         try:
-            settings = frappe.get_single("AI Assistant Settings")
-            settings_data = {
-                "ollama_url": settings.ollama_url or "http://localhost:11434",
-                "model": settings.model or "llama2",
-                "safe_mode": settings.safe_mode,
-                "confirm_destructive": settings.confirm_destructive,
-                "log_commands": settings.log_commands
-            }
+            settings_data = get_settings()
         except Exception:
             settings_data = {
+                "provider": "ollama",
                 "ollama_url": "http://localhost:11434",
-                "model": "llama2",
+                "ollama_model": "llama2",
+                "has_openai_key": False,
+                "openai_model": "gpt-5",
                 "safe_mode": 1,
                 "confirm_destructive": 1,
                 "log_commands": 0

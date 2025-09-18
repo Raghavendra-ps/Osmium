@@ -7,9 +7,17 @@
  "engine": "InnoDB",
  "field_order": [
   "general_settings_section",
-  "ollama_url",
-  "model",
+  "provider",
   "column_break_1",
+  "ollama_settings_section",
+  "ollama_url",
+  "ollama_model",
+  "column_break_2",
+  "openai_settings_section",
+  "openai_api_key",
+  "openai_model",
+  "column_break_3",
+  "safety_settings_section",
   "safe_mode",
   "confirm_destructive",
   "log_commands"
@@ -18,43 +26,99 @@
   {
    "fieldname": "general_settings_section",
    "fieldtype": "Section Break",
-   "label": "General Settings"
+   "label": "AI Provider Configuration"
   },
   {
-   "default": "http://localhost:11434",
-   "fieldname": "ollama_url",
-   "fieldtype": "Data",
-   "label": "Ollama URL",
-   "reqd": 1
-  },
-  {
-   "default": "llama2",
-   "fieldname": "model",
-   "fieldtype": "Data",
-   "label": "AI Model",
-   "reqd": 1
+   "default": "ollama",
+   "fieldname": "provider",
+   "fieldtype": "Select",
+   "label": "AI Provider",
+   "options": "ollama\nopenai",
+   "reqd": 1,
+   "description": "Select your preferred AI provider"
   },
   {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "ollama_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Ollama Configuration",
+   "depends_on": "eval:doc.provider=='ollama'"
+  },
+  {
+   "default": "http://localhost:11434",
+   "fieldname": "ollama_url",
+   "fieldtype": "Data",
+   "label": "Ollama Server URL",
+   "depends_on": "eval:doc.provider=='ollama'",
+   "description": "URL of your Ollama server (e.g., http://localhost:11434)"
+  },
+  {
+   "default": "llama2",
+   "fieldname": "ollama_model",
+   "fieldtype": "Data",
+   "label": "Ollama Model",
+   "depends_on": "eval:doc.provider=='ollama'",
+   "description": "Ollama model name (e.g., llama2, codellama, etc.)"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break",
+   "depends_on": "eval:doc.provider=='ollama'"
+  },
+  {
+   "fieldname": "openai_settings_section",
+   "fieldtype": "Section Break",
+   "label": "OpenAI Configuration",
+   "depends_on": "eval:doc.provider=='openai'"
+  },
+  {
+   "fieldname": "openai_api_key",
+   "fieldtype": "Password",
+   "label": "OpenAI API Key",
+   "depends_on": "eval:doc.provider=='openai'",
+   "description": "Your OpenAI API key (starts with sk-)"
+  },
+  {
+   "default": "gpt-5",
+   "fieldname": "openai_model",
+   "fieldtype": "Data",
+   "label": "OpenAI Model",
+   "depends_on": "eval:doc.provider=='openai'",
+   "description": "OpenAI model name (gpt-5, gpt-4o, gpt-3.5-turbo, etc.)"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break",
+   "depends_on": "eval:doc.provider=='openai'"
+  },
+  {
+   "fieldname": "safety_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Safety & Execution Settings"
+  },
+  {
    "default": 1,
    "fieldname": "safe_mode",
    "fieldtype": "Check",
-   "label": "Safe Mode"
+   "label": "Safe Mode",
+   "description": "Enable additional safety checks for command execution"
   },
   {
    "default": 1,
    "fieldname": "confirm_destructive",
    "fieldtype": "Check",
-   "label": "Confirm Destructive Operations"
+   "label": "Confirm Destructive Operations",
+   "description": "Require manual confirmation for data-modifying operations"
   },
   {
    "default": 0,
    "fieldname": "log_commands",
    "fieldtype": "Check",
-   "label": "Log Commands"
+   "label": "Log Commands",
+   "description": "Log all executed commands for audit trail"
   }
  ],
  "issingle": 1,

@@ -61,6 +61,7 @@ class AIAssistantInterface {
 
         // Settings modal handlers
         $('#save-settings').on('click', () => this.save_settings());
+        $('#provider').on('change', (e) => this.toggle_provider_sections(e.target.value));
 
         // Command confirmation handlers
         $('#confirm-command').on('click', () => this.execute_confirmed_command());
@@ -125,8 +126,12 @@ class AIAssistantInterface {
     }
 
     update_ui() {
-        // Update status panel
-        $('#current-model').text(this.settings.model || 'Unknown');
+        // Update status panel with current model based on provider
+        const currentModel = this.settings.provider === 'openai' 
+            ? this.settings.openai_model || 'gpt-5'
+            : this.settings.ollama_model || 'llama2';
+        $('#current-model').text(currentModel);
+        
         $('#safe-mode-status').html(
             this.settings.safe_mode ? 
             '<i class="indicator green"></i> Enabled' : 
@@ -370,23 +375,41 @@ class AIAssistantInterface {
 
     show_settings_modal() {
         // Populate current settings
+        $('#provider').val(this.settings.provider || 'ollama');
         $('#ollama-url').val(this.settings.ollama_url);
-        $('#ai-model').val(this.settings.model);
+        $('#ollama-model').val(this.settings.ollama_model);
+        // Don't populate API key for security - leave blank for new input
+        $('#openai-api-key').val('');
+        if (this.settings.has_openai_key) {
+            $('#openai-api-key').attr('placeholder', 'API key is configured (enter new key to change)');
+        }
+        $('#openai-model').val(this.settings.openai_model);
         $('#safe-mode').prop('checked', this.settings.safe_mode);
         $('#confirm-destructive').prop('checked', this.settings.confirm_destructive);
         $('#log-commands').prop('checked', this.settings.log_commands);
+        
+        // Show/hide relevant sections based on provider
+        this.toggle_provider_sections(this.settings.provider || 'ollama');
         
         $('#settings-modal').modal('show');
     }
 
     save_settings() {
         const settings = {
+            provider: $('#provider').val(),
             ollama_url: $('#ollama-url').val(),
-            model: $('#ai-model').val(),
+            ollama_model: $('#ollama-model').val(),
+            openai_model: $('#openai-model').val(),
             safe_mode: $('#safe-mode').prop('checked'),
             confirm_destructive: $('#confirm-destructive').prop('checked'),
             log_commands: $('#log-commands').prop('checked')
         };
+        
+        // Only include API key if it's not empty (to avoid overwriting with blank)
+        const apiKey = $('#openai-api-key').val().trim();
+        if (apiKey) {
+            settings.openai_api_key = apiKey;
+        }
 
         frappe.call({
             method: 'ai_assistant.ai_assistant.api.update_settings',
@@ -403,6 +426,16 @@ class AIAssistantInterface {
                 }
             }
         });
+    }
+
+    toggle_provider_sections(provider) {
+        if (provider === 'openai') {
+            $('.ollama-section').hide();
+            $('.openai-section').show();
+        } else {
+            $('.ollama-section').show();
+            $('.openai-section').hide();
+        }
     }
 
     load_recent_sessions() {

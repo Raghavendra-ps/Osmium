@@ -70,11 +70,26 @@ def send_message(session_id, message, role="user"):
                 schema_context = SchemaService.get_schema_context()
                 
                 # Generate AI response using AI service
-                ai_service = AIService(
-                    provider="ollama",  # Default to ollama for now, will be configurable later
-                    url=settings.get("ollama_url", "http://localhost:11434"),
-                    model=settings.get("model", "llama2")
-                )
+                provider = settings.get("provider", "ollama")
+                if provider == "openai":
+                    # Get API key directly from DocType (not from sanitized settings)
+                    settings_doc = frappe.get_single("AI Assistant Settings")
+                    openai_api_key = settings_doc.openai_api_key
+                    
+                    if not openai_api_key:
+                        frappe.throw(_("OpenAI API key is not configured. Please set it in AI Assistant Settings."))
+                    
+                    ai_service = AIService(
+                        provider="openai",
+                        model=settings.get("openai_model", "gpt-5"),
+                        openai_api_key=openai_api_key
+                    )
+                else:
+                    ai_service = AIService(
+                        provider="ollama",
+                        url=settings.get("ollama_url", "http://localhost:11434"),
+                        model=settings.get("ollama_model", "llama2")
+                    )
                 
                 # Analyze if this is a command
                 command_analysis = ai_service.analyze_command(message, schema_context)
@@ -273,8 +288,11 @@ def get_settings():
         settings = frappe.get_single("AI Assistant Settings")
         
         return {
+            "provider": settings.provider or "ollama",
             "ollama_url": settings.ollama_url or "http://localhost:11434",
-            "model": settings.model or "llama2",
+            "ollama_model": settings.ollama_model or "llama2",
+            "has_openai_key": bool(settings.openai_api_key),  # Never return the actual key
+            "openai_model": settings.openai_model or "gpt-5",
             "safe_mode": settings.safe_mode,
             "confirm_destructive": settings.confirm_destructive,
             "log_commands": settings.log_commands
@@ -286,14 +304,18 @@ def get_settings():
 
 
 @frappe.whitelist()
-def update_settings(ollama_url=None, model=None, safe_mode=None, 
+def update_settings(provider=None, ollama_url=None, ollama_model=None, 
+                   openai_api_key=None, openai_model=None, safe_mode=None, 
                    confirm_destructive=None, log_commands=None):
     """
     Update AI Assistant settings.
     
     Args:
+        provider (str, optional): AI provider (ollama or openai)
         ollama_url (str, optional): Ollama server URL
-        model (str, optional): AI model name
+        ollama_model (str, optional): Ollama model name
+        openai_api_key (str, optional): OpenAI API key
+        openai_model (str, optional): OpenAI model name
         safe_mode (bool, optional): Enable safe mode
         confirm_destructive (bool, optional): Confirm destructive operations
         log_commands (bool, optional): Log executed commands
@@ -306,13 +328,23 @@ def update_settings(ollama_url=None, model=None, safe_mode=None,
         if not frappe.has_permission("AI Assistant Settings", "write"):
             frappe.throw(_("Not permitted to update AI Assistant settings"), frappe.PermissionError)
         
+        # Additional security check for System Manager role
+        if "System Manager" not in frappe.get_roles(frappe.session.user):
+            frappe.throw(_("Only System Managers can update AI Assistant settings"), frappe.PermissionError)
+        
         settings = frappe.get_single("AI Assistant Settings")
         
         # Update provided fields
+        if provider is not None:
+            settings.provider = provider
         if ollama_url is not None:
             settings.ollama_url = ollama_url
-        if model is not None:
-            settings.model = model
+        if ollama_model is not None:
+            settings.ollama_model = ollama_model
+        if openai_api_key is not None:
+            settings.openai_api_key = openai_api_key
+        if openai_model is not None:
+            settings.openai_model = openai_model
         if safe_mode is not None:
             settings.safe_mode = cint(safe_mode)
         if confirm_destructive is not None:
