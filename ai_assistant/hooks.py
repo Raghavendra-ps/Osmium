@@ -2,9 +2,9 @@ from ai_assistant import __version__ as app_version
 
 app_name = "ai_assistant"
 app_title = "AI Assistant"
-app_publisher = "ERPNext"
+app_publisher = "Gretis India Private Limited"
 app_description = "AI Assistant for ERPNext with intelligent chat and database interactions"
-app_email = "support@erpnext.com"
+app_email = "raghavendra_ps@icloud.com"
 app_license = "MIT"
 
 # Includes in <head>

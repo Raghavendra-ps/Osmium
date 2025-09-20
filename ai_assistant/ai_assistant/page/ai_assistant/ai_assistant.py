@@ -39,19 +39,27 @@ class AIAssistantPage:
         try:
             settings = frappe.get_single("AI Assistant Settings")
             context.settings = {
+                "provider": settings.provider or "ollama",
                 "ollama_url": settings.ollama_url or "http://localhost:11434",
-                "model": settings.model or "llama2",
+                "ollama_model": settings.ollama_model or "llama2",
+                "openai_model": settings.openai_model or "gpt-4o",
+                "has_openai_key": bool(settings.openai_api_key),
                 "safe_mode": settings.safe_mode,
                 "confirm_destructive": settings.confirm_destructive,
+                "confirm_sql_operations": settings.confirm_sql_operations,
                 "log_commands": settings.log_commands
             }
         except Exception:
             # Provide defaults if settings not found
             context.settings = {
+                "provider": "ollama",
                 "ollama_url": "http://localhost:11434",
-                "model": "llama2", 
+                "ollama_model": "llama2",
+                "openai_model": "gpt-4o",
+                "has_openai_key": False,
                 "safe_mode": 1,
                 "confirm_destructive": 1,
+                "confirm_sql_operations": 1,
                 "log_commands": 0
             }
         
@@ -145,6 +153,7 @@ def get_page_data():
                 "openai_model": "gpt-5",
                 "safe_mode": 1,
                 "confirm_destructive": 1,
+                "confirm_sql_operations": 1,
                 "log_commands": 0
             }
         
@@ -159,82 +168,35 @@ def get_page_data():
             "permissions": {
                 "can_manage_settings": frappe.has_permission("AI Assistant Settings", "write"),
                 "can_create_sessions": frappe.has_permission("AI Chat Session", "create"),
-                "can_send_messages": frappe.has_permission("AI Chat Message", "create"),
-                "can_execute_commands": frappe.has_permission("AI Chat Message", "write")
-            },
-            "server_time": now_datetime()
+                "can_send_messages": frappe.has_permission("AI Chat Message", "create")
+            }
         }
-        
-    except frappe.AuthenticationError:
-        frappe.throw(_("Authentication required"))
-    except frappe.PermissionError:
-        frappe.throw(_("Access denied"))
     except Exception as e:
-        frappe.log_error(f"Get Page Data Error: {str(e)}", "AI Assistant Page")
-        frappe.throw(_("Failed to load page data"))
+        frappe.log_error(f"Error getting page data: {str(e)}", "AI Assistant Page")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @frappe.whitelist()
 def initialize_session():
     """
-    Initialize a new chat session for the current user.
+    Initialize a new chat session.
     
     Returns:
-        dict: New session information
+        dict: Session creation result
     """
     try:
-        page = AIAssistantPage()
-        page.check_permission()
-        
-        if not frappe.has_permission("AI Chat Session", "create"):
-            frappe.throw(_("Not permitted to create chat sessions"), frappe.PermissionError)
-        
-        # Auto-scan database if enabled
-        from ai_assistant.ai_assistant.services.schema import SchemaService
-        try:
-            settings = frappe.get_single("AI Assistant Settings")
-            if settings.auto_scan_database:
-                # Trigger database scan for new session context
-                schema_data = SchemaService.scan_database(include_custom=True, max_tables=500)
-                SchemaService.save_schema_to_settings(schema_data)
-                
-                frappe.logger("ai_assistant").info(f"Database scanned for new session. "
-                                                 f"Found {schema_data['summary']['total_doctypes']} DocTypes "
-                                                 f"and {schema_data['summary']['total_tables']} tables.")
-        except Exception as scan_error:
-            frappe.log_error(f"Database scan error during session init: {str(scan_error)}", "AI Assistant")
-            # Continue with session creation even if scan fails
-
-        # Create new session
-        session_doc = frappe.get_doc({
-            "doctype": "AI Chat Session",
-            "title": f"Chat Session - {frappe.format(now_datetime(), 'datetime')}",
-            "user": frappe.session.user,
-            "session_start": now_datetime(),
-            "status": "Active",
-            "message_count": 0
-        })
-        session_doc.insert()
-        
-        # Get schema context for response
-        try:
-            schema_context = SchemaService.get_schema_context(format_type="summary")
-        except Exception:
-            schema_context = "Database context unavailable"
-        
+        from ai_assistant.ai_assistant.api import create_chat_session
+        session = create_chat_session()
         return {
             "success": True,
-            "session": {
-                "id": session_doc.name,
-                "title": session_doc.title,
-                "status": session_doc.status,
-                "session_start": session_doc.session_start
-            },
-            "database_context": schema_context
+            "session": session
         }
-        
-    except frappe.PermissionError:
-        raise
     except Exception as e:
-        frappe.log_error(f"Initialize Session Error: {str(e)}", "AI Assistant Page")
-        frappe.throw(_("Failed to create new session"))
+        frappe.log_error(f"Error initializing session: {str(e)}", "AI Assistant Session")
+        return {
+            "success": False,
+            "error": str(e)
+        }
