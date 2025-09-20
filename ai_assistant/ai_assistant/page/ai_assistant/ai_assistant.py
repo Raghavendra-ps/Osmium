@@ -4,37 +4,37 @@
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
-
+import os # <-- IMPORT ADDED
 
 class AIAssistantPage:
     """
     Server-side page controller for AI Assistant Desk page.
-    
+
     Handles page configuration, permissions, and initialization.
     """
-    
+
     def __init__(self):
         self.page_name = "ai_assistant"
         self.page_title = _("AI Assistant")
         self.icon = "fa fa-robot"
-        
+
     def get_context(self):
         """
         Get page context and configuration.
-        
+
         Returns:
             dict: Page context with configuration and initial data
         """
         # Check permissions
         self.check_permission()
-        
+
         context = frappe._dict()
         context.page_title = self.page_title
         context.icon = self.icon
         context.user = frappe.session.user
         context.user_image = frappe.db.get_value("User", frappe.session.user, "user_image")
         context.full_name = frappe.utils.get_fullname(frappe.session.user)
-        
+
         # Get current settings
         try:
             settings = frappe.get_single("AI Assistant Settings")
@@ -62,7 +62,7 @@ class AIAssistantPage:
                 "confirm_sql_operations": 1,
                 "log_commands": 0
             }
-        
+
         # Get recent chat sessions for the user
         try:
             context.recent_sessions = frappe.get_all("AI Chat Session",
@@ -73,35 +73,41 @@ class AIAssistantPage:
             )
         except Exception:
             context.recent_sessions = []
-        
+
         # Check user permissions
         context.can_manage_settings = frappe.has_permission("AI Assistant Settings", "write")
         context.can_create_sessions = frappe.has_permission("AI Chat Session", "create")
         context.can_send_messages = frappe.has_permission("AI Chat Message", "create")
-        
+
+        # --- FIX: Load the HTML content from the template file ---
+        page_path = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(page_path, 'ai_assistant.html'), 'r') as f:
+            context.html_content = f.read()
+        # --- END FIX ---
+
         return context
-    
+
     def check_permission(self):
         """
         Check if user has permission to access the AI Assistant page.
-        
+
         Raises:
             frappe.PermissionError: If user doesn't have required permissions
         """
         if frappe.session.user == "Guest":
             frappe.throw(_("Please log in to access AI Assistant"), frappe.AuthenticationError)
-        
+
         # Check if user can at least read AI Chat Sessions or Messages
-        if not (frappe.has_permission("AI Chat Session", "read") or 
+        if not (frappe.has_permission("AI Chat Session", "read") or
                 frappe.has_permission("AI Chat Message", "read")):
-            frappe.throw(_("You don't have permission to access AI Assistant"), 
+            frappe.throw(_("You don't have permission to access AI Assistant"),
                         frappe.PermissionError)
-    
+
     @staticmethod
     def get_page_info():
         """
         Get static page information for registration.
-        
+
         Returns:
             dict: Page registration info
         """
@@ -117,29 +123,29 @@ class AIAssistantPage:
 def get_context(context=None):
     """
     ERPNext page context handler.
-    
+
     Args:
         context (dict, optional): Existing context
-        
+
     Returns:
         dict: Complete page context
     """
-    page = AIAssistantPage()
-    return page.get_context()
+    page_instance = AIAssistantPage()
+    return page_instance.get_context()
 
 
 @frappe.whitelist()
 def get_page_data():
     """
     Get page data for JavaScript initialization.
-    
+
     Returns:
         dict: Page data including user info and permissions
     """
     try:
         page = AIAssistantPage()
         page.check_permission()
-        
+
         # Get settings using the standardized get_settings function
         from ai_assistant.ai_assistant.api import get_settings
         try:
@@ -156,7 +162,7 @@ def get_page_data():
                 "confirm_sql_operations": 1,
                 "log_commands": 0
             }
-        
+
         return {
             "success": True,
             "user": {
@@ -173,29 +179,6 @@ def get_page_data():
         }
     except Exception as e:
         frappe.log_error(f"Error getting page data: {str(e)}", "AI Assistant Page")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-@frappe.whitelist()
-def initialize_session():
-    """
-    Initialize a new chat session.
-    
-    Returns:
-        dict: Session creation result
-    """
-    try:
-        from ai_assistant.ai_assistant.api import create_chat_session
-        session = create_chat_session()
-        return {
-            "success": True,
-            "session": session
-        }
-    except Exception as e:
-        frappe.log_error(f"Error initializing session: {str(e)}", "AI Assistant Session")
         return {
             "success": False,
             "error": str(e)
